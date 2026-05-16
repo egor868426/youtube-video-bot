@@ -1,4 +1,5 @@
 import os
+import json
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from youtube_search import search_videos
@@ -9,11 +10,33 @@ TOKEN = os.environ["BOT_TOKEN"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 client = Groq(api_key=GROQ_API_KEY)
 
-CHAT_SYSTEM_RU = """Ты дружелюбный ассистент. Отвечай коротко и по делу на русском языке.
-Если пользователь хочет найти видео — напомни что нужно написать «найди [запрос]»."""
+CHAT_SYSTEM_RU = """Ты дружелюбный ассистент. Отвечай коротко и по делу на русском языке."""
+CHAT_SYSTEM_EN = """You are a friendly assistant. Reply briefly and to the point in English."""
 
-CHAT_SYSTEM_EN = """You are a friendly assistant. Reply briefly and to the point in English.
-If the user wants to find videos — remind them to type 'search [query]'."""
+INTENT_SYSTEM = """Determine if the user wants to find/search a video or just chat.
+Reply with JSON only:
+{"intent": "search", "query": "search query here", "lang": "ru"}
+or
+{"intent": "chat", "lang": "ru"}
+
+Use lang "en" if the message is in English, "ru" if in Russian."""
+
+
+def detect_intent(text: str) -> dict:
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": INTENT_SYSTEM},
+                {"role": "user", "content": text},
+            ],
+            temperature=0,
+            max_tokens=80,
+        )
+        return json.loads(response.choices[0].message.content.strip())
+    except Exception:
+        lang = "en" if text.isascii() else "ru"
+        return {"intent": "chat", "lang": lang}
 
 
 async def do_search(update: Update, query: str, lang: str = "ru"):
@@ -47,30 +70,15 @@ async def do_search(update: Update, query: str, lang: str = "ru"):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-    lower = text.lower()
 
-    # Триггер поиска
-    en_triggers = ["search"]
-    ru_triggers = ["найди", "найти", "поищи"]
-    for trigger in en_triggers:
-        if lower.startswith(trigger):
-            query = text[len(trigger):].strip()
-            if query:
-                await do_search(update, query, lang="en")
-            else:
-                await update.message.reply_text("What to search? Type: search [query]")
-            return
-    for trigger in ru_triggers:
-        if lower.startswith(trigger):
-            query = text[len(trigger):].strip()
-            if query:
-                await do_search(update, query, lang="ru")
-            else:
-                await update.message.reply_text("Что искать? Напиши: найди [запрос]")
-            return
+    intent = detect_intent(text)
+    lang = intent.get("lang", "ru")
 
-    # Обычный чат — язык по тексту пользователя
-    lang = "en" if lower.isascii() else "ru"
+    if intent.get("intent") == "search":
+        query = intent.get("query", text)
+        await do_search(update, query, lang=lang)
+        return
+
     chat_system = CHAT_SYSTEM_EN if lang == "en" else CHAT_SYSTEM_RU
     response = client.chat.completions.create(
         model="llama-3.1-8b-instant",
@@ -87,10 +95,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Привет! / Hi there!\n\n"
-        "🇷🇺 Я помогу найти нужные видео на YouTube.\n"
-        "Напиши <b>найди [запрос]</b> — подберу лучшие видео с объяснением.\n\n"
-        "🇬🇧 I'll help you find the best YouTube videos.\n"
-        "Type <b>search [query]</b> — I'll pick the most relevant ones with explanations.\n\n"
+        "🇷🇺 Просто напиши что хочешь найти на YouTube — я сам пойму и подберу лучшие видео.\n\n"
+        "🇬🇧 Just type what you want to find on YouTube — I'll understand and pick the best videos.\n\n"
         "Или просто общайся / or just chat 🙂",
         parse_mode="HTML",
     )
@@ -100,7 +106,7 @@ def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("Бот запущен. Триггер поиска: «найди [запрос]»")
+    print("Бот запущен.")
     app.run_polling()
 
 
