@@ -24,7 +24,7 @@ No ads. No sponsored results. Just the most useful videos for what you're actual
 | `найди как работает нейронная сеть` | Top 3–5 videos about neural networks, ranked by relevance |
 | `search python async await` | Best tutorials ranked by AI |
 
-> Screenshot coming soon — try it yourself at [@infoFindd_bot](https://t.me/infoFindd_bot)
+![Demo](demo.png)
 
 ---
 
